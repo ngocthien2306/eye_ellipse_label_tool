@@ -1,6 +1,6 @@
 # Pupil Annotation Tool
 
-A comprehensive tool for annotating, processing, and augmenting eye pupil detection datasets for computer vision applications.
+A comprehensive tool for annotating, processing, augmenting, and training pupil detection models for computer vision applications.
 
 ## Features
 
@@ -8,6 +8,7 @@ A comprehensive tool for annotating, processing, and augmenting eye pupil detect
 - **Data Splitting**: Split datasets into train/validation/test sets with customizable ratios
 - **Eye Region Cropping**: Automatically crop images to the eye region
 - **Data Augmentation**: Generate augmented datasets with various transformations
+- **Model Training**: Train YOLO11 models directly within the application with real-time metrics
 
 ## Screenshots
 
@@ -40,6 +41,16 @@ The augmentation screen offers:
 - Batch processing of dataset images
 - Preservation of annotation integrity during transformations
 
+### Training Screen
+![Training Screen](assets/training_screen.png)
+
+The training screen enables you to:
+- Select model size (nano, small, medium, large, xlarge)
+- Configure training hyperparameters (batch size, image size, epochs)
+- Optimize learning settings (learning rate, optimizer selection)
+- Monitor training progress with real-time metrics
+- View live training logs
+
 ## Directory Structure
 
 The tool expects and generates the following directory structure:
@@ -66,6 +77,20 @@ dataset/
         ├── images/
         ├── labels/
         └── labels_ellipse/
+```
+
+After training, models and results are saved to:
+
+```
+runs/
+└── segment/
+    └── train/
+        ├── weights/
+        │   ├── best.pt        # Best model weights
+        │   └── last.pt        # Last checkpoint weights
+        ├── results.csv        # Training metrics
+        ├── confusion_matrix.png
+        └── ...                # Other training outputs
 ```
 
 ## Annotation Format
@@ -95,6 +120,8 @@ Where:
 - OpenCV-Python
 - NumPy
 - Albumentations (for augmentation)
+- Ultralytics (for YOLOv8 training)
+- Matplotlib (for training visualizations)
 
 ## Installation
 
@@ -139,6 +166,15 @@ python main.py
 4. Click "Generate Preview" to see example augmentations
 5. Set "Augmentations per image" value
 6. Click "Generate Augmented Data" to process the entire dataset
+
+### Training Workflow
+
+1. Click "Select Dataset Folder" on the Training tab
+2. Choose model size and configure hyperparameters
+3. Adjust optimization settings as needed
+4. Click "Start Training" to begin the training process
+5. Monitor real-time metrics and logs during training
+6. Review results upon completion
 
 ## Contribution Guidelines
 
