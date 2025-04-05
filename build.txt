@@ -1,0 +1,26 @@
+pyinstaller --noconfirm --onefile --clean ^
+--name "EVS Label" ^
+--additional-hooks-dir="hooks" ^
+--hidden-import cv2 ^
+--hidden-import albumentations ^
+--hidden-import numpy.core._multiarray_umath ^
+--hidden-import numpy.core.multiarray ^
+--hidden-import numpy.core._dtype_ctypes ^
+--hidden-import psutil ^
+--hidden-import metavision_hal ^
+--hidden-import metavision_core ^
+--hidden-import metavision_core.event_io ^
+--hidden-import metavision_core.event_io.raw_reader ^
+--collect-all metavision_hal ^
+--collect-all metavision_core ^
+--exclude-module cutensor ^
+--exclude-module torch ^
+--exclude-module tensorflow ^
+--exclude-module tensorflow-gpu ^
+--exclude-module tensorboard ^
+--exclude-module keras ^
+--exclude-module cudnn ^
+--exclude-module notebook ^
+--exclude-module ipykernel ^
+--exclude-module jedi ^
+main.py
