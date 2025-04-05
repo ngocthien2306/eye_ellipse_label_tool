@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QGrid
 from PyQt5.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QCursor
 from PyQt5.QtCore import Qt, QRect, QPoint
 
-from styles import AnnotationStyles
+from src.utils.styles import AnnotationStyles
 
 class CropImageLabel(QLabel):
     """Custom QLabel that supports crop rectangle drawing and manipulation"""

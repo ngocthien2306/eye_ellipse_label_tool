@@ -10,7 +10,7 @@ import numpy as np
 import random
 import albumentations as A
 
-from styles import AnnotationStyles
+from src.utils.styles import AnnotationStyles
 
 class AugmentationThread(QThread):
     """Thread for running augmentation in background"""

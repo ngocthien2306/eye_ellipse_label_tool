@@ -6,10 +6,10 @@ from PyQt5.QtGui import QKeySequence
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QShortcut
 
-from annotation import AnnotationTab
-from split import SplitTab
-from augmentation import AugmentationTab
-from styles import AnnotationStyles  # Import our new styles
+from src.ui.annotation import AnnotationTab
+from src.ui.split import SplitTab
+from src.ui.augmentation import AugmentationTab
+from src.utils.styles import AnnotationStyles  # Import our new styles
 
 class EllipseDetectorApp(QMainWindow):
     def __init__(self):

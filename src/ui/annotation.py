@@ -7,8 +7,8 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QLa
 from PyQt5.QtGui import QPixmap, QImage, QIcon
 from PyQt5.QtCore import Qt, QPoint
 
-from styles import AnnotationStyles
-from utils import create_checkmark_icon
+from src.utils.styles import AnnotationStyles
+from src.utils.utils import create_checkmark_icon
 
 class AnnotationTab(QWidget):
     def __init__(self, parent=None):
