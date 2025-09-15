@@ -1,3 +1,4 @@
+import traceback
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QTabWidget, 
                              QStatusBar, QMessageBox)
 from PyQt5.QtGui import QKeySequence
@@ -10,6 +11,7 @@ from src.ui.split import SplitTab
 from src.ui.augmentation import AugmentationTab
 from src.utils.styles import AnnotationStyles
 from src.ui.train import TrainingTab 
+
 
 class EllipseDetectorApp(QMainWindow):
     def __init__(self):

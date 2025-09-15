@@ -25,6 +25,10 @@ class SplitTab(QWidget):
         self.current_split_segment = None
         self.current_split_ellipse = None
         
+        # Multi-object support
+        self.split_objects = {0: {'segment': None, 'ellipse': None}, 1: {'segment': None, 'ellipse': None}}
+        self.class_names = ['iris', 'pupil']
+        
         # Crop rectangle parameters
         self.crop_rect = None  # Format: (x, y, width, height)
         self.is_drawing_rect = False
@@ -235,51 +239,80 @@ class SplitTab(QWidget):
             has_segment = os.path.exists(segment_path)
             has_ellipse = os.path.exists(ellipse_path)
             
-            # Store label data
+            # Store label data for multiple objects
             self.current_split_segment = None
             self.current_split_ellipse = None
+            self.split_objects = {0: {'segment': None, 'ellipse': None}, 1: {'segment': None, 'ellipse': None}}
             
+            # Load segmentation labels for multiple objects
             if has_segment:
                 with open(segment_path, 'r') as f:
-                    self.current_split_segment = f.read().strip()
+                    lines = f.read().strip().split('\n')
+                
+                for line in lines:
+                    if not line.strip():
+                        continue
+                    parts = line.split()
+                    if len(parts) > 1:
+                        class_id = int(parts[0])
+                        if class_id in [0, 1]:
+                            self.split_objects[class_id]['segment'] = line
+                
+                # Keep first line for backward compatibility
+                if lines:
+                    self.current_split_segment = lines[0]
                     
+            # Load ellipse labels for multiple objects
             if has_ellipse:
                 with open(ellipse_path, 'r') as f:
-                    self.current_split_ellipse = f.read().strip()
+                    lines = f.read().strip().split('\n')
+                
+                for line in lines:
+                    if not line.strip():
+                        continue
+                    parts = line.split()
+                    if len(parts) >= 6:
+                        class_id = int(parts[0])
+                        if class_id in [0, 1]:
+                            self.split_objects[class_id]['ellipse'] = line
+                
+                # Keep first line for backward compatibility
+                if lines:
+                    self.current_split_ellipse = lines[0]
             
             # Display the image with labels
             image = self.display_split_image()
             
-            # Display label info
+            # Display label info for multiple objects
             info = f"Image: {file_name}\n"
-            if has_segment:
-                info += f"Has segmentation label: Yes\n"
-            else:
-                info += f"Has segmentation label: No\n"
-                
-            if has_ellipse:
-                info += f"Has ellipse label: Yes\n"
-                parts = self.current_split_ellipse.split()
-                if len(parts) >= 6:
-                    # Parse ellipse parameters: class_id, center_x, center_y, axes_x, axes_y, angle
-                    class_id = int(parts[0])
-                    
-                    img_height, img_width = image.shape[:2]
-                    
-                    center_x = float(parts[1]) * img_width
-                    center_y = float(parts[2]) * img_height
-                    axes_x = float(parts[3]) * img_width
-                    axes_y = float(parts[4]) * img_height
-                    angle = float(parts[5])
-                    
-                    # Draw the ellipse
-                    center = (int(center_x), int(center_y))
-                    axes = (int(axes_x), int(axes_y))
-                    info += f"Ellipse center: {center}\n"
-                    info += f"Axes: {axes}\n"
-                    info += f"Angle: {round(angle,2)} degrees\n"
-            else:
-                info += f"Has ellipse label: No"
+            
+            # Count objects by class
+            iris_segment = self.split_objects[0]['segment'] is not None
+            iris_ellipse = self.split_objects[0]['ellipse'] is not None
+            pupil_segment = self.split_objects[1]['segment'] is not None
+            pupil_ellipse = self.split_objects[1]['ellipse'] is not None
+            
+            info += f"Iris: {'Segment' if iris_segment else 'No segment'}, {'Ellipse' if iris_ellipse else 'No ellipse'}\n"
+            info += f"Pupil: {'Segment' if pupil_segment else 'No segment'}, {'Ellipse' if pupil_ellipse else 'No ellipse'}\n"
+            
+            # Show ellipse details for each class
+            for class_id in [0, 1]:
+                ellipse_data = self.split_objects[class_id]['ellipse']
+                if ellipse_data:
+                    parts = ellipse_data.split()
+                    if len(parts) >= 6:
+                        img_height, img_width = image.shape[:2]
+                        
+                        center_x = float(parts[1]) * img_width
+                        center_y = float(parts[2]) * img_height
+                        axes_x = float(parts[3]) * img_width
+                        axes_y = float(parts[4]) * img_height
+                        angle = float(parts[5])
+                        
+                        center = (int(center_x), int(center_y))
+                        axes = (int(axes_x), int(axes_y))
+                        class_name = self.class_names[class_id]
+                        info += f"{class_name} ellipse: center{center}, axes{axes}, angle{round(angle,2)}°\n"
                 
             self.split_info_text.setPlainText(info)
             
@@ -289,18 +322,21 @@ class SplitTab(QWidget):
         
         display_image = self.current_split_image.copy()
         
-        # Draw segment if available
-        if self.current_split_segment:
-            self.draw_segment_on_image(display_image, self.current_split_segment)
-        
-        # Draw ellipse if available
-        if self.current_split_ellipse:
-            self.draw_ellipse_on_image(display_image, self.current_split_ellipse)
+        # Draw segments and ellipses for all objects
+        for class_id in [0, 1]:
+            segment_data = self.split_objects[class_id]['segment']
+            ellipse_data = self.split_objects[class_id]['ellipse']
+            
+            if segment_data:
+                self.draw_segment_on_image(display_image, segment_data, class_id)
+            
+            if ellipse_data:
+                self.draw_ellipse_on_image(display_image, ellipse_data, class_id)
         
         # Convert to RGB for Qt
         display_image = cv2.cvtColor(display_image, cv2.COLOR_BGR2RGB)
         
-        height, width, channel = display_image.shape
+        height, width, _ = display_image.shape
         bytes_per_line = 3 * width
         q_image = QImage(display_image.data, width, height, bytes_per_line, QImage.Format_RGB888)
         
@@ -337,12 +373,22 @@ class SplitTab(QWidget):
         self.split_image_label.setFixedSize(pixmap.size())
         return display_image
     
-    def draw_segment_on_image(self, image, segment_data):
+    def draw_segment_on_image(self, image, segment_data, class_id=0):
         parts = segment_data.split()
         if len(parts) > 1:  # Make sure we have points
             # Class ID and points
-            class_id = int(parts[0])
+            actual_class_id = int(parts[0])
             points_data = parts[1:]
+            
+            # Use provided class_id if available, otherwise use the one from data
+            display_class_id = class_id if class_id is not None else actual_class_id
+            
+            # Class colors: iris=red, pupil=blue
+            class_colors = [(0, 0, 255), (255, 0, 0)]  # Red for iris (0), Blue for pupil (1)
+            class_labels = ['I', 'P']  # Short labels
+            
+            color = class_colors[display_class_id] if display_class_id in [0, 1] else (0, 0, 255)
+            label_prefix = class_labels[display_class_id] if display_class_id in [0, 1] else 'X'
             
             img_height, img_width = image.shape[:2]
             
@@ -357,20 +403,27 @@ class SplitTab(QWidget):
             # Draw the polygon
             if len(points) > 2:
                 points_array = np.array(points, dtype=np.int32)
-                cv2.polylines(image, [points_array], True, (0, 0, 255), 2)
+                cv2.polylines(image, [points_array], True, color, 2)
                 
-                # Number the points
+                # Number the points with class label
                 for i, point in enumerate(points):
-                    cv2.circle(image, point, 5, (0, 0, 255), -1)
-                    cv2.putText(image, str(i+1), 
+                    cv2.circle(image, point, 5, color, -1)
+                    cv2.putText(image, f"{label_prefix}{i+1}", 
                                 (point[0]+5, point[1]-5), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
 
-    def draw_ellipse_on_image(self, image, ellipse_data):
+    def draw_ellipse_on_image(self, image, ellipse_data, class_id=0):
         parts = ellipse_data.split()
         if len(parts) >= 6:
             # Parse ellipse parameters: class_id, center_x, center_y, axes_x, axes_y, angle
-            class_id = int(parts[0])
+            actual_class_id = int(parts[0])
+            
+            # Use provided class_id if available, otherwise use the one from data
+            display_class_id = class_id if class_id is not None else actual_class_id
+            
+            # Class colors: iris=red, pupil=blue
+            class_colors = [(0, 0, 255), (255, 0, 0)]  # Red for iris (0), Blue for pupil (1)
+            color = class_colors[display_class_id] if display_class_id in [0, 1] else (0, 255, 0)
             
             img_height, img_width = image.shape[:2]
             
@@ -384,10 +437,10 @@ class SplitTab(QWidget):
             center = (int(center_x), int(center_y))
             axes = (int(axes_x), int(axes_y))
             
-            cv2.ellipse(image, (center, axes, angle), (0, 255, 0), 2)
+            cv2.ellipse(image, (center, axes, angle), color, 2)
             
             # Draw center point
-            cv2.circle(image, center, 5, (255, 0, 0), -1)
+            cv2.circle(image, center, 5, color, -1)
             
     def split_wheel_event(self, event):
         delta = event.angleDelta().y()
@@ -810,21 +863,33 @@ class SplitTab(QWidget):
         self.rect_start_pos = None
         self.drag_start_pos = None
         
-        if self.crop_rect and self.current_split_ellipse:
-            # Verify if the crop rectangle contains the ellipse
-            ellipse_center, ellipse_axes = self.get_ellipse_parameters()
+        if self.crop_rect:
+            # Verify if the crop rectangle contains all ellipse centers
             rect_x, rect_y, rect_w, rect_h = self.crop_rect
+            warnings = []
             
-            if not (rect_x <= ellipse_center[0] <= rect_x + rect_w and 
-                    rect_y <= ellipse_center[1] <= rect_y + rect_h):
-                self.update_info_text("Warning: Crop rectangle must contain the ellipse center!", append=True)
+            for class_id in [0, 1]:
+                ellipse_data = self.split_objects[class_id]['ellipse']
+                if ellipse_data:
+                    ellipse_center, _ = self.get_ellipse_parameters(ellipse_data)
+                    if ellipse_center:
+                        if not (rect_x <= ellipse_center[0] <= rect_x + rect_w and 
+                                rect_y <= ellipse_center[1] <= rect_y + rect_h):
+                            class_name = self.class_names[class_id]
+                            warnings.append(f"Warning: Crop rectangle must contain {class_name} ellipse center!")
+            
+            if warnings:
+                self.update_info_text("\n".join(warnings), append=True)
     
-    def get_ellipse_parameters(self):
+    def get_ellipse_parameters(self, ellipse_data=None):
         """Extract ellipse parameters from YOLO format"""
-        if not self.current_split_ellipse:
+        if ellipse_data is None:
+            ellipse_data = self.current_split_ellipse
+            
+        if not ellipse_data:
             return None, None
         
-        parts = self.current_split_ellipse.split()
+        parts = ellipse_data.split()
         if len(parts) >= 6:
             img_height, img_width = self.current_split_image.shape[:2]
             
@@ -838,128 +903,166 @@ class SplitTab(QWidget):
         return None, None
     
     def create_crop_rect_for_image(self, image, ellipse_data):
-        """Create a crop rectangle for the given image based on ellipse or current crop rect"""
+        """Create a crop rectangle for the given image based on ellipses or current crop rect"""
         h, w = image.shape[:2]
         
         # If we have a crop_rect already defined (from UI), use it
         if hasattr(self, 'crop_rect') and self.crop_rect:
             return self.crop_rect
         
-        # Otherwise, create one based on the ellipse
-        parts = ellipse_data.split()
-        if len(parts) >= 6:
-            # Parse ellipse parameters
-            class_id = int(parts[0])
-            center_x = float(parts[1]) * w
-            center_y = float(parts[2]) * h
-            axes_x = float(parts[3]) * w
-            axes_y = float(parts[4]) * h
-            
-            # Create rectangle around ellipse with some margin
-            margin = 1.5  # 50% margin around the ellipse
-            rect_w = int(axes_x * 2 * margin)
-            rect_h = int(axes_y * 2 * margin)
-            rect_x = max(0, int(center_x - rect_w / 2))
-            rect_y = max(0, int(center_y - rect_h / 2))
-            
-            # Ensure rectangle stays within image bounds
-            if rect_x + rect_w > w:
-                rect_w = w - rect_x
-            if rect_y + rect_h > h:
-                rect_h = h - rect_y
+        # Otherwise, create one based on all available ellipses
+        all_centers = []
+        all_axes = []
+        
+        # Collect all ellipse data
+        for class_id in [0, 1]:
+            ellipse_obj_data = self.split_objects[class_id]['ellipse'] if hasattr(self, 'split_objects') else None
+            if ellipse_obj_data:
+                parts = ellipse_obj_data.split()
+                if len(parts) >= 6:
+                    center_x = float(parts[1]) * w
+                    center_y = float(parts[2]) * h
+                    axes_x = float(parts[3]) * w
+                    axes_y = float(parts[4]) * h
+                    
+                    all_centers.append((center_x, center_y))
+                    all_axes.append((axes_x, axes_y))
+        
+        # Fallback to legacy ellipse_data parameter
+        if not all_centers and ellipse_data:
+            parts = ellipse_data.split()
+            if len(parts) >= 6:
+                center_x = float(parts[1]) * w
+                center_y = float(parts[2]) * h
+                axes_x = float(parts[3]) * w
+                axes_y = float(parts[4]) * h
                 
+                all_centers.append((center_x, center_y))
+                all_axes.append((axes_x, axes_y))
+        
+        if all_centers:
+            # Calculate bounding box that contains all ellipses
+            margin = 1.5  # 50% margin around the ellipses
+            
+            min_x = min(center[0] - axes[0] * margin for center, axes in zip(all_centers, all_axes))
+            max_x = max(center[0] + axes[0] * margin for center, axes in zip(all_centers, all_axes))
+            min_y = min(center[1] - axes[1] * margin for center, axes in zip(all_centers, all_axes))
+            max_y = max(center[1] + axes[1] * margin for center, axes in zip(all_centers, all_axes))
+            
+            rect_x = max(0, int(min_x))
+            rect_y = max(0, int(min_y))
+            rect_w = min(w - rect_x, int(max_x - min_x))
+            rect_h = min(h - rect_y, int(max_y - min_y))
+            
             return (rect_x, rect_y, rect_w, rect_h)
             
         return None
     
     def create_adjusted_label(self, src_path, dst_path, img_shape, crop_rect):
-        """Create adjusted segmentation label for cropped image"""
+        """Create adjusted segmentation labels for cropped image (multiple objects)"""
         if not os.path.exists(src_path):
             return
             
         with open(src_path, 'r') as f:
-            segment_data = f.read().strip()
+            lines = f.read().strip().split('\n')
             
-        parts = segment_data.split()
-        if len(parts) > 1:
-            class_id = parts[0]
-            points_data = parts[1:]
-            
-            img_height, img_width = img_shape[:2]
-            crop_x, crop_y, crop_w, crop_h = crop_rect
-            
-            # Adjust points to new coordinate system
-            new_points = []
-            for i in range(0, len(points_data), 2):
-                if i + 1 < len(points_data):
-                    # Denormalize from original image
-                    x = float(points_data[i]) * img_width
-                    y = float(points_data[i + 1]) * img_height
-                    
-                    # Adjust to crop coordinates
-                    x = x - crop_x
-                    y = y - crop_y
-                    
-                    # Normalize to cropped dimensions
-                    x_norm = x / crop_w
-                    y_norm = y / crop_h
-                    
-                    # Ensure coordinates are within [0,1] range
-                    x_norm = max(0, min(1, x_norm))
-                    y_norm = max(0, min(1, y_norm))
-                    
-                    new_points.append(f"{x_norm:.15f}")
-                    new_points.append(f"{y_norm:.15f}")
-            
-            # Create new label
-            new_label = f"{class_id} " + " ".join(new_points)
-            
-            # Write adjusted label
+        img_height, img_width = img_shape[:2]
+        crop_x, crop_y, crop_w, crop_h = crop_rect
+        
+        adjusted_lines = []
+        
+        for line in lines:
+            if not line.strip():
+                continue
+                
+            parts = line.split()
+            if len(parts) > 1:
+                class_id = parts[0]
+                points_data = parts[1:]
+                
+                # Adjust points to new coordinate system
+                new_points = []
+                for i in range(0, len(points_data), 2):
+                    if i + 1 < len(points_data):
+                        # Denormalize from original image
+                        x = float(points_data[i]) * img_width
+                        y = float(points_data[i + 1]) * img_height
+                        
+                        # Adjust to crop coordinates
+                        x = x - crop_x
+                        y = y - crop_y
+                        
+                        # Normalize to cropped dimensions
+                        x_norm = x / crop_w
+                        y_norm = y / crop_h
+                        
+                        # Ensure coordinates are within [0,1] range
+                        x_norm = max(0, min(1, x_norm))
+                        y_norm = max(0, min(1, y_norm))
+                        
+                        new_points.append(f"{x_norm:.15f}")
+                        new_points.append(f"{y_norm:.15f}")
+                
+                # Create new label line
+                if new_points:
+                    new_label = f"{class_id} " + " ".join(new_points)
+                    adjusted_lines.append(new_label)
+        
+        # Write all adjusted labels
+        if adjusted_lines:
             with open(dst_path, 'w') as f:
-                f.write(new_label)
+                f.write('\n'.join(adjusted_lines))
     
     def create_adjusted_ellipse(self, src_path, dst_path, img_shape, crop_rect):
-        """Create adjusted ellipse label for cropped image"""
+        """Create adjusted ellipse labels for cropped image (multiple objects)"""
         if not os.path.exists(src_path):
             return
             
         with open(src_path, 'r') as f:
-            ellipse_data = f.read().strip()
+            lines = f.read().strip().split('\n')
             
-        parts = ellipse_data.split()
-        if len(parts) >= 6:
-            class_id = parts[0]
-            
-            img_height, img_width = img_shape[:2]
-            crop_x, crop_y, crop_w, crop_h = crop_rect
-            
-            # Denormalize from original image
-            center_x = float(parts[1]) * img_width
-            center_y = float(parts[2]) * img_height
-            axes_x = float(parts[3]) * img_width
-            axes_y = float(parts[4]) * img_height
-            angle = float(parts[5])
-            
-            # Adjust to crop coordinates
-            center_x = center_x - crop_x
-            center_y = center_y - crop_y
-            
-            # Normalize to cropped dimensions
-            center_x_norm = center_x / crop_w
-            center_y_norm = center_y / crop_h
-            axes_x_norm = axes_x / crop_w
-            axes_y_norm = axes_y / crop_h
-            
-            # Ensure coordinates are within [0,1] range
-            center_x_norm = max(0, min(1, center_x_norm))
-            center_y_norm = max(0, min(1, center_y_norm))
-            
-            # Create new ellipse label
-            new_ellipse = f"{class_id} {center_x_norm:.15f} {center_y_norm:.15f} {axes_x_norm:.15f} {axes_y_norm:.15f} {angle:.15f}"
-            
-            # Write adjusted label
+        img_height, img_width = img_shape[:2]
+        crop_x, crop_y, crop_w, crop_h = crop_rect
+        
+        adjusted_lines = []
+        
+        for line in lines:
+            if not line.strip():
+                continue
+                
+            parts = line.split()
+            if len(parts) >= 6:
+                class_id = parts[0]
+                
+                # Denormalize from original image
+                center_x = float(parts[1]) * img_width
+                center_y = float(parts[2]) * img_height
+                axes_x = float(parts[3]) * img_width
+                axes_y = float(parts[4]) * img_height
+                angle = float(parts[5])
+                
+                # Adjust to crop coordinates
+                center_x = center_x - crop_x
+                center_y = center_y - crop_y
+                
+                # Normalize to cropped dimensions
+                center_x_norm = center_x / crop_w
+                center_y_norm = center_y / crop_h
+                axes_x_norm = axes_x / crop_w
+                axes_y_norm = axes_y / crop_h
+                
+                # Ensure coordinates are within [0,1] range
+                center_x_norm = max(0, min(1, center_x_norm))
+                center_y_norm = max(0, min(1, center_y_norm))
+                
+                # Create new ellipse label line
+                new_ellipse = f"{class_id} {center_x_norm:.15f} {center_y_norm:.15f} {axes_x_norm:.15f} {axes_y_norm:.15f} {angle:.15f}"
+                adjusted_lines.append(new_ellipse)
+        
+        # Write all adjusted ellipse labels
+        if adjusted_lines:
             with open(dst_path, 'w') as f:
-                f.write(new_ellipse)
+                f.write('\n'.join(adjusted_lines))
     
     def update_info_text(self, text, append=False):
         if append:

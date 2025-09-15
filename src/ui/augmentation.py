@@ -91,7 +91,12 @@ class AugmentationTab(QWidget):
         # Main content with options and preview
         content_splitter = QSplitter(Qt.Horizontal)
         
-        # Left panel - file list and augmentation options
+        # Left panel - file list and augmentation options (with scroll)
+        left_scroll_area = QScrollArea()
+        left_scroll_area.setWidgetResizable(True)
+        left_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        left_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
         left_widget = QWidget()
         left_layout = QVBoxLayout()
         
@@ -103,6 +108,7 @@ class AugmentationTab(QWidget):
         
         self.file_list = QListWidget()
         self.file_list.itemClicked.connect(self.load_image)
+        self.file_list.setMaximumHeight(200)  # Limit height to make more room for other components
         
         file_layout.addWidget(self.file_list)
         file_widget.setLayout(file_layout)
@@ -110,6 +116,7 @@ class AugmentationTab(QWidget):
         # Transformation options group
         transform_group = QGroupBox("Transformation Options")
         transform_layout = QVBoxLayout()
+        transform_layout.setSpacing(4)  # Reduce spacing
         
         # Horizontal Flip Row
         hflip_row = QHBoxLayout()
@@ -174,6 +181,7 @@ class AugmentationTab(QWidget):
         # Crop options group
         crop_group = QGroupBox("Random Crop")
         crop_layout = QVBoxLayout()
+        crop_layout.setSpacing(4)  # Reduce spacing
         
         # Crop Row
         crop_row = QHBoxLayout()
@@ -218,6 +226,7 @@ class AugmentationTab(QWidget):
         # Noise options group
         noise_group = QGroupBox("Noise")
         noise_layout = QVBoxLayout()
+        noise_layout.setSpacing(4)  # Reduce spacing
         
         # Noise Row
         noise_row = QHBoxLayout()
@@ -262,6 +271,7 @@ class AugmentationTab(QWidget):
         # Generation settings
         settings_group = QGroupBox("Generation Settings")
         settings_layout = QVBoxLayout()
+        settings_layout.setSpacing(4)  # Reduce spacing
         
         # Number of augmentations per image
         num_aug_row = QHBoxLayout()
@@ -303,7 +313,8 @@ class AugmentationTab(QWidget):
         gen_layout.addWidget(self.generate_button)
         gen_layout.addWidget(self.progress_bar)
         
-        # Add components to left layout
+        # Add components to left layout with minimal spacing
+        left_layout.setSpacing(8)  # Reduce spacing between components
         left_layout.addWidget(file_widget)
         left_layout.addWidget(transform_group)
         left_layout.addWidget(crop_group)
@@ -356,8 +367,11 @@ class AugmentationTab(QWidget):
         right_layout.addWidget(info_widget)
         right_widget.setLayout(right_layout)
         
+        # Set the left widget to the scroll area
+        left_scroll_area.setWidget(left_widget)
+        
         # Add widgets to content splitter
-        content_splitter.addWidget(left_widget)
+        content_splitter.addWidget(left_scroll_area)
         content_splitter.addWidget(right_widget)
         content_splitter.setSizes([300, 700])
         
@@ -500,8 +514,13 @@ class AugmentationTab(QWidget):
         for checkbox in self.findChildren(QCheckBox):
             checkbox.setStyleSheet(checkbox_style)
         
-        # Scroll area
+        # Scroll areas
         self.preview_scroll_area.setStyleSheet(AnnotationStyles.SCROLL_AREA_STYLE + AnnotationStyles.SCROLLBAR_STYLE)
+        
+        # Left panel scroll area
+        left_scroll_area = self.findChild(QScrollArea)
+        if left_scroll_area:
+            left_scroll_area.setStyleSheet(AnnotationStyles.SCROLL_AREA_STYLE + AnnotationStyles.SCROLLBAR_STYLE)
         
         # Preview image area
         self.preview_label.setStyleSheet("""
@@ -633,36 +652,59 @@ class AugmentationTab(QWidget):
         label_path = os.path.join(labels_dir, f"{base_name}.txt")
         
         self.current_segment = None
-        self.keypoints = []
+        self.keypoints = []  # All keypoints from all classes
+        self.keypoint_labels = []  # Class labels for each keypoint
+        self.objects = {0: [], 1: []}  # Separate keypoints by class: 0=iris, 1=pupil
         
-        # Load segmentation labels
+        # Load segmentation labels for multiple objects
         if os.path.exists(label_path):
             with open(label_path, 'r') as f:
-                self.current_segment = f.read().strip()
-                # Parse segmentation points
-                parts = self.current_segment.split()
+                lines = f.read().strip().split('\n')
+            
+            h, w = self.current_image.shape[:2]
+            
+            for line in lines:
+                if not line.strip():
+                    continue
+                    
+                parts = line.split()
                 if len(parts) > 1:
                     class_id = int(parts[0])
                     points_data = parts[1:]
                     
-                    h, w = self.current_image.shape[:2]
-                    
+                    class_keypoints = []
                     for i in range(0, len(points_data), 2):
                         if i + 1 < len(points_data):
                             x = float(points_data[i]) * w
                             y = float(points_data[i + 1]) * h
+                            class_keypoints.append([x, y])
+                            # Add to combined lists
                             self.keypoints.append([x, y])
+                            self.keypoint_labels.append(class_id)
+                    
+                    # Store by class
+                    if class_id in [0, 1]:  # iris=0, pupil=1
+                        self.objects[class_id] = class_keypoints
+            
+            # Set current_segment to the first line for backward compatibility
+            if lines:
+                self.current_segment = lines[0]
         
         # Update info
         h, w = self.current_image.shape[:2]
         info = f"Image: {file_name} ({w}x{h})"
         
         if self.current_segment:
-            info += "\nSegmentation: Yes"
+            iris_count = len(self.objects[0])
+            pupil_count = len(self.objects[1])
+            info += f"\nIris points: {iris_count}"
+            info += f"\nPupil points: {pupil_count}"
         else:
             info += "\nSegmentation: No"
             
         self.info_label.setText(info)
+        
+        self.generate_preview()
     
     def create_transforms(self, image_height=None, image_width=None):
         """Create albumentations transforms based on UI settings"""
@@ -820,18 +862,29 @@ class AugmentationTab(QWidget):
             
             if self.keypoints:
                 keypoints = self.keypoints.copy()
-                keypoint_labels = [0] * len(keypoints)  # Giả sử tất cả cùng class 0
+                keypoint_labels = self.keypoint_labels.copy() if hasattr(self, 'keypoint_labels') else [0] * len(keypoints)
             
             original_display = original_image.copy()
-            if keypoints:
-                for point in keypoints:
-                    x, y = int(point[0]), int(point[1])
-                    cv2.circle(original_display, (x, y), 5, (0, 0, 255), -1)
-                
-                if len(keypoints) > 2:
-                    pts = np.array(keypoints, np.int32)
-                    pts = pts.reshape((-1, 1, 2))
-                    cv2.polylines(original_display, [pts], True, (0, 255, 0), 2)
+            
+            # Draw objects with different colors for each class
+            class_colors = [(0, 0, 255), (255, 0, 0)]  # Red for iris (0), Blue for pupil (1)
+            
+            for class_id in [0, 1]:
+                if hasattr(self, 'objects') and class_id in self.objects:
+                    class_points = self.objects[class_id]
+                    if class_points:
+                        color = class_colors[class_id]
+                        
+                        # Draw points
+                        for point in class_points:
+                            x, y = int(point[0]), int(point[1])
+                            cv2.circle(original_display, (x, y), 5, color, -1)
+                        
+                        # Draw polygon if enough points
+                        if len(class_points) > 2:
+                            pts = np.array(class_points, np.int32)
+                            pts = pts.reshape((-1, 1, 2))
+                            cv2.polylines(original_display, [pts], True, color, 2)
             
             transforms = self.create_transforms(h, w)
             
@@ -843,7 +896,7 @@ class AugmentationTab(QWidget):
             preview_images = []
             preview_images.append(("Original", original_display))
             
-            for i in range(3):
+            for i in range(7):
                 transformed = preview_pipeline(
                     image=original_image.copy(),
                     keypoints=keypoints.copy() if keypoints else [],
@@ -852,19 +905,33 @@ class AugmentationTab(QWidget):
                 aug_image = transformed['image']
                 aug_keypoints = transformed.get('keypoints', [])
                 
-                if aug_keypoints:
-                    for point in aug_keypoints:
-                        x, y = int(point[0]), int(point[1])
-                        cv2.circle(aug_image, (x, y), 5, (0, 0, 255), -1)
+                # Draw augmented keypoints with class colors
+                if aug_keypoints and keypoint_labels:
+                    # Group keypoints by class
+                    class_keypoints = {0: [], 1: []}
+                    for kp, label in zip(aug_keypoints, keypoint_labels):
+                        if label in [0, 1]:
+                            class_keypoints[label].append(kp)
                     
-                    if len(aug_keypoints) > 2:
-                        pts = np.array(aug_keypoints, np.int32)
-                        pts = pts.reshape((-1, 1, 2))
-                        cv2.polylines(aug_image, [pts], True, (0, 255, 0), 2)
+                    # Draw each class with different colors
+                    for class_id in [0, 1]:
+                        if class_keypoints[class_id]:
+                            color = class_colors[class_id]
+                            
+                            # Draw points
+                            for point in class_keypoints[class_id]:
+                                x, y = int(point[0]), int(point[1])
+                                cv2.circle(aug_image, (x, y), 5, color, -1)
+                            
+                            # Draw polygon if enough points
+                            if len(class_keypoints[class_id]) > 2:
+                                pts = np.array(class_keypoints[class_id], np.int32)
+                                pts = pts.reshape((-1, 1, 2))
+                                cv2.polylines(aug_image, [pts], True, color, 2)
                 
                 preview_images.append((f"Version {i+1}", aug_image))
             
-            grid_cols = 2  
+            grid_cols = 4  
             grid_rows = (len(preview_images) + grid_cols - 1) // grid_cols
             
             thumb_height = 240  
@@ -1034,6 +1101,7 @@ class AugmentationTab(QWidget):
 
     def regenerate_previews(self, dialog, original_image, keypoints, keypoint_labels):
         """Regenerate preview versions with current settings"""
+        _ = original_image, keypoints, keypoint_labels  # Unused parameters
         dialog.accept()  
         self.generate_preview() 
 
@@ -1062,28 +1130,32 @@ class AugmentationTab(QWidget):
         
         h, w = image.shape[:2]
         
-        # Load labels
+        # Load labels for multiple objects
         keypoints = []
         keypoint_labels = []
         
-        # Load segmentation labels
+        # Load segmentation labels for multiple classes
         segment_path = os.path.join(source_labels_dir, f"{base_name}.txt")
         if os.path.exists(segment_path):
             with open(segment_path, 'r') as f:
-                segment_data = f.read().strip()
-                
-            # Parse segmentation points
-            parts = segment_data.split()
-            if len(parts) > 1:
-                class_id = int(parts[0])
-                points_data = parts[1:]
-                
-                for i in range(0, len(points_data), 2):
-                    if i + 1 < len(points_data):
-                        x = float(points_data[i])  # Already normalized
-                        y = float(points_data[i + 1])
-                        keypoints.append([x * w, y * h])  # De-normalize for albumentations
-                        keypoint_labels.append(class_id)
+                lines = f.read().strip().split('\n')
+            
+            # Parse all objects in the file
+            for line in lines:
+                if not line.strip():
+                    continue
+                    
+                parts = line.split()
+                if len(parts) > 1:
+                    class_id = int(parts[0])
+                    points_data = parts[1:]
+                    
+                    for i in range(0, len(points_data), 2):
+                        if i + 1 < len(points_data):
+                            x = float(points_data[i])  # Already normalized
+                            y = float(points_data[i + 1])
+                            keypoints.append([x * w, y * h])  # De-normalize for albumentations
+                            keypoint_labels.append(class_id)
         
         # Create transforms for this image
         transforms = self.create_transforms(h, w)
@@ -1111,31 +1183,39 @@ class AugmentationTab(QWidget):
                 aug_image_path = os.path.join(output_images_dir, aug_image_file)
                 cv2.imwrite(aug_image_path, augmented_image)
                 
-                # Save augmented segmentation labels
-                if keypoints and augmented_keypoints:
+                # Save augmented segmentation labels for multiple objects
+                if keypoints and augmented_keypoints and keypoint_labels:
                     aug_labels_path = os.path.join(output_labels_dir, f"{base_name}_aug{i}.txt")
                     
-                    # Format segmentation in YOLO format
-                    if keypoint_labels:
-                        class_id = keypoint_labels[0]  # Assuming all points have same class
-                    else:
-                        class_id = 0
-                        
-                    # Normalize coordinates
+                    # Group keypoints by class
+                    class_keypoints = {0: [], 1: []}
+                    for kp, label in zip(augmented_keypoints, keypoint_labels):
+                        if label in [0, 1]:
+                            class_keypoints[label].append(kp)
+                    
+                    # Normalize coordinates and create lines for each class
                     aug_h, aug_w = augmented_image.shape[:2]
-                    normalized_points = []
+                    output_lines = []
                     
-                    for kp in augmented_keypoints:
-                        x, y = kp
-                        x_norm = x / aug_w
-                        y_norm = y / aug_h
-                        normalized_points.extend([x_norm, y_norm])
+                    for class_id in [0, 1]:
+                        if class_keypoints[class_id]:
+                            normalized_points = []
+                            
+                            for kp in class_keypoints[class_id]:
+                                x, y = kp
+                                x_norm = x / aug_w
+                                y_norm = y / aug_h
+                                normalized_points.extend([x_norm, y_norm])
+                            
+                            # Format: class_id x1 y1 x2 y2 ...
+                            if normalized_points:
+                                segment_line = f"{class_id} " + " ".join([f"{p:.15f}" for p in normalized_points])
+                                output_lines.append(segment_line)
                     
-                    # Format: class_id x1 y1 x2 y2 ...
-                    segment_line = f"{class_id} " + " ".join([f"{p:.15f}" for p in normalized_points])
-                    
-                    with open(aug_labels_path, 'w') as f:
-                        f.write(segment_line)
+                    # Write all objects to file
+                    if output_lines:
+                        with open(aug_labels_path, 'w') as f:
+                            f.write('\n'.join(output_lines))
                     
             except Exception as e:
                 print(f"Error augmenting {image_file} (augmentation {i}): {str(e)}")
